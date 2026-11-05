@@ -164,8 +164,9 @@ public struct Planner: Sendable {
         }
 
         let bundleID = idSpecifier.formBundleID(product: library.name)
-        let deploymentTarget = graph.root.platforms?.first { $0.name == "ios" }?.version
-            ?? Self.minSupportedIOSVersion
+        let platform = buildSettings.isWatchOS ? "watchos" : "ios"
+        let deploymentTarget = graph.root.platforms?.first { $0.name == platform }?.version
+            ?? (buildSettings.isWatchOS ? "10.0" : Self.minSupportedIOSVersion)
 
         var infoPlist: [String: Sendable] = [
             "CFBundleInfoDictionaryVersion": "6.0",
@@ -181,6 +182,9 @@ public struct Planner: Sendable {
         ]
 
         switch type {
+        case .application where buildSettings.isWatchOS:
+            infoPlist["UIDeviceFamily"] = [4]
+            infoPlist["WKApplication"] = true
         case .application:
             infoPlist["UIDeviceFamily"] = [1, 2]
             infoPlist["UISupportedInterfaceOrientations"] = ["UIInterfaceOrientationPortrait"]

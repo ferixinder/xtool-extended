@@ -140,3 +140,18 @@ entitlementsPath: App.entitlements
 > - Many entitlements require specific "Capabilities" to be enabled on your app in the Developer Services portal. xtool handles this for you, but we need to add code to xtool for each Entitlement-Capability mapping. If you run into a Capability that we don't handle yet, please let us know.
 >
 > Entitlements are a large surface area. If you find any bugs or missing functionality, please [create a GitHub Issue](https://github.com/xtool-org/xtool/issues/new/choose).
+
+## Companion Watch app
+
+Add a separate SwiftPM library product for a single-target watchOS app, declare its minimum `.watchOS` version in `Package.swift`, and select it in `xtool.yml`:
+
+```yaml
+watchApp:
+  product: MyWatchApp
+  bundleID: com.example.MyApp.watchkitapp
+  infoPath: Watch-Info.plist
+```
+
+The Watch product must have a distinct name and a bundle ID prefixed by the iOS app's bundle ID. Its Info.plist must set `WKCompanionAppBundleIdentifier` to the iOS bundle ID. Optional `resources` and `entitlementsPath` fields work as they do for app extensions.
+
+The CLI builds the iOS and watchOS products separately and embeds the Watch app under `Watch/` in the iOS bundle. Companion device builds use `arm64` when the minimum watchOS version is 26 or later, and `arm64_32` for earlier deployment targets; simulator builds use the host app's simulator architecture. Register the paired Watch UDID in the same developer team before provisioning; installing to the iPhone currently registers only the iPhone automatically. Linux SDK generation includes WatchOS and WatchSimulator platforms from Xcode. Companion Watch apps are not yet supported by `generate-xcode-project`. Provisioning and installation still require validation with the target Watch device.

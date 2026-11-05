@@ -64,12 +64,22 @@ public struct AutoSigner {
 
         try didProvision()
 
+        var bundleIDs: [String: String] = [:]
+        for (url, info) in provisioningDict {
+            let plist = try Data(contentsOf: url.appendingPathComponent("Info.plist"))
+            let dict = try PropertyListSerialization.propertyList(from: plist, format: nil) as? [String: Any]
+            guard let originalID = dict?["CFBundleIdentifier"] as? String else {
+                throw Error.errorReading("CFBundleIdentifier")
+            }
+            bundleIDs[originalID] = info.newBundleID
+        }
+
         for (url, info) in provisioningDict {
             let infoPlist = url.appendingPathComponent("Info.plist")
             guard let data = try? Data(contentsOf: infoPlist),
                 let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
                 else { throw Error.errorReading(infoPlist.lastPathComponent) }
-            let nsDict = NSMutableDictionary(dictionary: dict)
+            let nsDict = NSMutableDictionary(dictionary: Self.remappingWatchIdentifiers(in: dict, bundleIDs: bundleIDs))
             nsDict["CFBundleIdentifier"] = info.newBundleID
             guard nsDict.write(to: infoPlist, atomically: true) else {
                 throw Error.errorWriting(infoPlist.lastPathComponent)
@@ -97,6 +107,23 @@ public struct AutoSigner {
         progress(1)
 
         return mainInfo.newBundleID
+    }
+
+    static func remappingWatchIdentifiers(in plist: [String: Any], bundleIDs: [String: String]) -> [String: Any] {
+        var plist = plist
+        for key in ["WKCompanionAppBundleIdentifier", "WKAppBundleIdentifier"] {
+            if let oldID = plist[key] as? String, let newID = bundleIDs[oldID] {
+                plist[key] = newID
+            }
+        }
+        if var ext = plist["NSExtension"] as? [String: Any],
+           var attributes = ext["NSExtensionAttributes"] as? [String: Any],
+           let oldID = attributes["WKAppBundleIdentifier"] as? String, let newID = bundleIDs[oldID] {
+            attributes["WKAppBundleIdentifier"] = newID
+            ext["NSExtensionAttributes"] = attributes
+            plist["NSExtension"] = ext
+        }
+        return plist
     }
 
 }

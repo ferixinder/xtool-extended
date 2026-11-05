@@ -31,7 +31,7 @@ public struct Packer: Sendable {
         let package = Package(
             name: "\(plan.app.product)-Builder",
             platforms: [
-                .iOS("\(plan.app.deploymentTarget)"),
+                .\(buildSettings.isWatchOS ? "watchOS" : "iOS")("\(plan.app.deploymentTarget)"),
             ],
             dependencies: [
                 .package(name: "RootPackage", path: "../.."),
@@ -97,7 +97,7 @@ public struct Packer: Sendable {
         case .swiftPM:
             binPath = "\(buildSettings.triple)/\(buildSettings.configuration.rawValue)"
         case .swiftBuild:
-            let platformName = buildSettings.triple.contains("simulator") ? "iphonesimulator" : "iphoneos"
+            let platformName = buildSettings.platformName
             binPath = "out/Products/\(buildSettings.configuration.swiftBuildValue)-\(platformName)"
         }
         let binDir = URL(
@@ -198,8 +198,10 @@ public struct Packer: Sendable {
             var info = product.infoPlist
 
             if product.type == .application {
-                info["UIRequiredDeviceCapabilities"] = ["arm64"]
-                info["LSRequiresIPhoneOS"] = true
+                if !buildSettings.isWatchOS {
+                    info["UIRequiredDeviceCapabilities"] = ["arm64"]
+                    info["LSRequiresIPhoneOS"] = true
+                }
                 info["CFBundleSupportedPlatforms"] = Packer.cfBundleSupportedPlatforms(for: buildSettings.triple)
             }
 
@@ -227,6 +229,10 @@ public struct Packer: Sendable {
 
         let os = components[appleIndex + 1].prefix { !$0.isNumber }
         switch os {
+        case "watchos" where components.contains("simulator"):
+            return ["WatchSimulator"]
+        case "watchos":
+            return ["WatchOS"]
         case "ios" where components.contains("simulator"):
             return ["iPhoneSimulator"]
         case "ios":

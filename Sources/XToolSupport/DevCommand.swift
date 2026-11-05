@@ -25,6 +25,8 @@ struct PackOperation {
     var triple: String?
     var buildOptions = BuildOptions(configuration: .debug)
     var xcode = false
+    var schemaOverride: PackSchema?
+    var selectWatchArchitecture = false
 
     @discardableResult
     func run() async throws -> URL {
@@ -43,7 +45,9 @@ struct PackOperation {
 
         let schema: PackSchema
         let configPath = URL(fileURLWithPath: "xtool.yml")
-        if FileManager.default.fileExists(atPath: configPath.path) {
+        if let schemaOverride {
+            schema = schemaOverride
+        } else if FileManager.default.fileExists(atPath: configPath.path) {
             schema = try await PackSchema(url: configPath)
         } else {
             schema = .default
@@ -55,7 +59,7 @@ struct PackOperation {
 
         await LSPConfig.tryEnsure(using: schema)
 
-        let buildSettings = try await BuildSettings(
+        var buildSettings = try await BuildSettings(
             configuration: buildOptions.configuration,
             triple: triple ?? Self.defaultTriple,
             options: []
@@ -66,9 +70,26 @@ struct PackOperation {
             schema: schema
         )
         let plan = try await planner.createPlan()
+        if selectWatchArchitecture {
+            buildSettings = try await BuildSettings(
+                configuration: buildOptions.configuration,
+                triple: BuildSettings.watchDeviceTriple(minimumVersion: plan.app.deploymentTarget)
+            )
+        }
 
         if xcode {
+            guard schema.watchApp == nil else {
+                throw Console.Error("Xcode project generation for companion Watch apps is not supported. Use `xtool dev`.")
+            }
             return try await XcodePacker(plan: plan).createProject()
+        }
+
+        if let watch = schema.watchApp {
+            guard !buildSettings.isWatchOS, buildSettings.triple.contains("-apple-ios"),
+                  let bundleID = watch.bundleID, bundleID.hasPrefix(plan.app.bundleID + "."),
+                  watch.product != plan.app.product else {
+                throw Console.Error("watchApp requires an iOS host, a distinct product and a bundleID prefixed by the host bundleID.")
+            }
         }
 
         let packer = Packer(
@@ -77,15 +98,22 @@ struct PackOperation {
         )
         let bundle = try await packer.pack()
 
-        let productsWithEntitlements = plan
-            .allProducts
-            .compactMap { p in p.entitlementsPath.map { (p, $0) } }
+        if let watch = schema.watchApp {
+            try await embedWatchApp(watch, in: bundle, hostBundleID: plan.app.bundleID, buildSettings: buildSettings)
+        }
+
+        var productsWithEntitlements = plan.allProducts.compactMap { product in
+            product.entitlementsPath.map { (product.directory(inApp: bundle), $0) }
+        }
+        if let watch = schema.watchApp, let path = watch.entitlementsPath {
+            productsWithEntitlements.append((bundle.appendingPathComponent("Watch/\(watch.product).app"), path))
+        }
         if !productsWithEntitlements.isEmpty {
             let mapping = try await withThrowingTaskGroup(of: (URL, Data).self) { group in
                 for (product, path) in productsWithEntitlements {
                     group.addTask {
                         let entitlements = try await Data(reading: URL(fileURLWithPath: path))
-                        return (product.directory(inApp: bundle), entitlements)
+                        return (product, entitlements)
                     }
                 }
                 return try await group.reduce(into: [:]) { $0[$1.0] = $1.1 }
@@ -102,6 +130,31 @@ struct PackOperation {
 
         return bundle
     }
+
+    private func embedWatchApp(
+        _ watch: PackSchema.Extension, in bundle: URL, hostBundleID: String, buildSettings: BuildSettings
+    ) async throws {
+        let watchSchema = try PackSchema(watchApp: watch)
+        let watchTriple = if buildSettings.triple.contains("simulator") {
+            "\(buildSettings.triple.split(separator: "-")[0])-apple-watchos-simulator"
+        } else {
+            // Plan with the compatibility architecture, then select the device architecture from the minimum watchOS.
+            "arm64_32-apple-watchos"
+        }
+        let watchBundle = try await PackOperation(
+            triple: watchTriple, buildOptions: buildOptions, schemaOverride: watchSchema,
+            selectWatchArchitecture: !buildSettings.triple.contains("simulator")
+        ).run()
+        let plist = try Data(contentsOf: watchBundle.appendingPathComponent("Info.plist"))
+        let info = try PropertyListSerialization.propertyList(from: plist, format: nil) as? [String: Any]
+        guard info?["WKCompanionAppBundleIdentifier"] as? String == hostBundleID else {
+            throw Console.Error("watchApp Info.plist must set WKCompanionAppBundleIdentifier to '\(hostBundleID)'.")
+        }
+        let watchDirectory = bundle.appendingPathComponent("Watch", isDirectory: true)
+        try FileManager.default.createDirectory(at: watchDirectory, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: watchBundle, to: watchDirectory.appendingPathComponent(watchBundle.lastPathComponent))
+    }
+
 }
 
 struct DevXcodeCommand: AsyncParsableCommand {

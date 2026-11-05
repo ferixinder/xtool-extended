@@ -11,6 +11,17 @@ public struct BuildSettings: Sendable {
     public var packagePath: String
     public let configuration: BuildConfiguration
     public let triple: String
+
+    public var isWatchOS: Bool { triple.split(separator: "-").dropFirst(2).first?.hasPrefix("watchos") == true }
+    public var platformName: String {
+        if isWatchOS { return triple.contains("simulator") ? "watchsimulator" : "watchos" }
+        return triple.contains("simulator") ? "iphonesimulator" : "iphoneos"
+    }
+
+    public static func watchDeviceTriple(minimumVersion: String) -> String {
+        let majorVersion = minimumVersion.split(separator: ".").first.flatMap { Int($0) } ?? 0
+        return majorVersion >= 26 ? "arm64-apple-watchos" : "arm64_32-apple-watchos"
+    }
     public let buildSystem: BuildSystem
     public let customOptions: [String]
 

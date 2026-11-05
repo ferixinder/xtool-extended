@@ -77,7 +77,7 @@ struct SDKBuilder {
     let mode: Mode
 
     // bump this when the sdk builder logic changes
-    static let sdkEpoch = 4
+    static let sdkEpoch = 5
 
     // tag from https://github.com/xtool-org/darwin-tools-linux-llvm
     static let darwinToolsVersion = "1.1.0"
@@ -135,11 +135,17 @@ struct SDKBuilder {
         let iPhoneOSSDK = try sdk(platform: "iPhoneOS", prefix: "iPhoneOS")
         let iPhoneSimSDK = try sdk(platform: "iPhoneSimulator", prefix: "iPhoneSimulator")
         let macOSSDK = try sdk(platform: "MacOSX", prefix: "MacOSX")
+        let watchOSSDK = try dev.appending(path: "Platforms/WatchOS.platform/Developer/SDKs").dirExists
+            ? sdk(platform: "WatchOS", prefix: "WatchOS") : nil
+        let watchSimSDK = try dev.appending(path: "Platforms/WatchSimulator.platform/Developer/SDKs").dirExists
+            ? sdk(platform: "WatchSimulator", prefix: "WatchSimulator") : nil
 
         d.out.print("""
         - \(iPhoneOSSDK)
         - \(iPhoneSimSDK)
         - \(macOSSDK)
+        - \(watchOSSDK ?? "WatchOS SDK not installed")
+        - \(watchSimSDK ?? "WatchSimulator SDK not installed")
         """)
 
         d.out.print("[Writing metadata]")
@@ -213,16 +219,22 @@ struct SDKBuilder {
             encoding: .utf8
         )
 
-        let sdkDefinition = SDKDefinition(
-            schemaVersion: "4.0",
-            targetTriples: [
-                "arm64-apple-ios": triple(platform: "iPhoneOS", sdk: iPhoneOSSDK),
-                "arm64-apple-ios-simulator": triple(platform: "iPhoneSimulator", sdk: iPhoneSimSDK),
-                "x86_64-apple-ios-simulator": triple(platform: "iPhoneSimulator", sdk: iPhoneSimSDK),
-                "arm64-apple-macosx": triple(platform: "MacOSX", sdk: macOSSDK),
-                "x86_64-apple-macosx": triple(platform: "MacOSX", sdk: macOSSDK),
-            ]
-        )
+        var targetTriples = [
+            "arm64-apple-ios": triple(platform: "iPhoneOS", sdk: iPhoneOSSDK),
+            "arm64-apple-ios-simulator": triple(platform: "iPhoneSimulator", sdk: iPhoneSimSDK),
+            "x86_64-apple-ios-simulator": triple(platform: "iPhoneSimulator", sdk: iPhoneSimSDK),
+            "arm64-apple-macosx": triple(platform: "MacOSX", sdk: macOSSDK),
+            "x86_64-apple-macosx": triple(platform: "MacOSX", sdk: macOSSDK),
+        ]
+        if let watchOSSDK {
+            targetTriples["arm64-apple-watchos"] = triple(platform: "WatchOS", sdk: watchOSSDK)
+            targetTriples["arm64_32-apple-watchos"] = triple(platform: "WatchOS", sdk: watchOSSDK)
+        }
+        if let watchSimSDK {
+            targetTriples["arm64-apple-watchos-simulator"] = triple(platform: "WatchSimulator", sdk: watchSimSDK)
+            targetTriples["x86_64-apple-watchos-simulator"] = triple(platform: "WatchSimulator", sdk: watchSimSDK)
+        }
+        let sdkDefinition = SDKDefinition(schemaVersion: "4.0", targetTriples: targetTriples)
 
         let encoder = JSONEncoder()
         try encoder
@@ -598,9 +610,10 @@ struct SDKBuilder {
 
         d.out.print("[Finalizing SDKs]")
 
-        for platform in ["iPhoneOS", "MacOSX", "iPhoneSimulator"] {
+        for platform in ["iPhoneOS", "MacOSX", "iPhoneSimulator", "WatchOS", "WatchSimulator"] {
             let lib = "../../../../../Library"
             let platformDir = dev.appending(path: "Platforms/\(platform).platform")
+            guard platformDir.appending(path: "Developer/SDKs").dirExists else { continue }
 
             try patchPlatformManifest(path: platformDir.appending(path: "Info.plist"))
 
@@ -863,7 +876,7 @@ struct SDKEntry {
             E("swift_static"),
             E("clang"),
         ]),
-        E("Platforms", ["iPhoneOS", "MacOSX", "iPhoneSimulator"].map {
+        E("Platforms", ["iPhoneOS", "MacOSX", "iPhoneSimulator", "WatchOS", "WatchSimulator"].map {
             E("\($0).platform", [
                 E("Info.plist"),
                 E("Developer", [

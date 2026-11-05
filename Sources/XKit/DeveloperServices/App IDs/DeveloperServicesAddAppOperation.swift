@@ -122,9 +122,9 @@ public struct DeveloperServicesAddAppOperation: DeveloperServicesOperation {
                 // DeveloperServices doesn't allow deleting these capabilities
                 let requiredCapabilities: Set<Components.Schemas.CapabilityType.Value1Payload> = [.inAppPurchase]
                 if let capType = cap.attributes?.capabilityType?.value1, !requiredCapabilities.contains(capType) {
-                    _ = try await context.developerAPIClient
+                    let response = try await context.developerAPIClient
                         .bundleIdCapabilitiesDeleteInstance(path: .init(id: cap.id))
-                        .noContent
+                    try Self.validateCapabilityDeletion(response)
                 }
             }
         }
@@ -158,6 +158,12 @@ public struct DeveloperServicesAddAppOperation: DeveloperServicesOperation {
         }
 
         return appID
+    }
+
+    static func validateCapabilityDeletion(_ response: Operations.BundleIdCapabilitiesDeleteInstance.Output) throws {
+        // A capability listed by Apple may already be absent when the delete request reaches it.
+        if case .notFound = response { return }
+        _ = try response.noContent
     }
 
     /// Registers the app and creates a profile. Returns the resultant entitlements as well as
@@ -245,13 +251,7 @@ public struct DeveloperServicesAddAppOperation: DeveloperServicesOperation {
 
     /// Registers the app + its extensions, returning the profile and entitlements of each
     public func perform() async throws -> [URL: ProvisioningInfo] {
-        var apps: [URL] = [root]
-
-        for pluginsDir in ["PlugIns", "Extensions"] {
-            let plugins = root.appendingPathComponent(pluginsDir)
-            guard plugins.dirExists else { continue }
-            apps += plugins.implicitContents.filter { $0.pathExtension.lowercased() == "appex" }
-        }
+        let apps = try Self.appBundles(in: root)
 
         let isFreeTeam = try await context.auth.team()?.isFree == true
 
@@ -267,6 +267,24 @@ public struct DeveloperServicesAddAppOperation: DeveloperServicesOperation {
             }
             return try await group.reduce(into: [:]) { $0[$1.0] = $1.1 }
         }
+    }
+
+    static func appBundles(in root: URL) throws -> [URL] {
+        var apps: [URL] = [root]
+
+        for pluginsDir in ["PlugIns", "Extensions"] {
+            let plugins = root.appendingPathComponent(pluginsDir)
+            guard plugins.dirExists else { continue }
+            apps += try plugins.contents().filter { $0.pathExtension.lowercased() == "appex" }
+        }
+
+        let watchDirectory = root.appendingPathComponent("Watch", isDirectory: true)
+        if watchDirectory.dirExists {
+            for watch in try watchDirectory.contents() where watch.pathExtension.lowercased() == "app" {
+                apps += try appBundles(in: watch)
+            }
+        }
+        return apps
     }
 
 }

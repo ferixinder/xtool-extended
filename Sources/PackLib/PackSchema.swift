@@ -21,6 +21,7 @@ public struct PackSchemaBase: Codable, Sendable {
     public var resources: [String]?
 
     public var extensions: [Extension]?
+    public var watchApp: Extension?
 
     /// Skip auto-creating the LSP support file if it's missing.
     public var skipLSP: Bool?
@@ -87,6 +88,14 @@ public struct PackSchema: Sendable {
         let data = try await Data(reading: url)
         let base = try YAMLDecoder().decode(PackSchemaBase.self, from: data)
         try self.init(validating: base)
+    }
+
+    public init(watchApp: Extension) throws {
+        try self.init(validating: .init(
+            version: .v1, bundleID: watchApp.bundleID, product: watchApp.product,
+            infoPath: watchApp.infoPath, entitlementsPath: watchApp.entitlementsPath,
+            resources: watchApp.resources, skipLSP: true
+        ))
     }
 
     public subscript<Subject>(dynamicMember keyPath: KeyPath<PackSchemaBase, Subject>) -> Subject {

@@ -33,13 +33,24 @@ def generate(root):
         variants += [('ipad', size, scale) for size in (20, 29, 40, 76) for scale in (1, 2)]
         variants += [('ipad', 83.5, 2), ('ios-marketing', 1024, 1)]
         if platform == 'watchos':
-            variants = [('universal', 1024, 1)]
+            variants = [('watch-marketing', 1024, 1)]
+            variants += [('watch', size, 2) for size in (24, 27.5, 29, 40, 44, 46, 50, 51, 54, 86, 98, 108, 117, 129)]
+            variants += [('watch', 29, 3)]
         for idiom, size, scale in variants:
             filename = f'{idiom}-{size}-{scale}.png'
             (icons / filename).write_bytes(png(int(size * scale)))
             entry = {'idiom': idiom, 'size': f'{size}x{size}', 'scale': f'{scale}x', 'filename': filename}
-            if platform == 'watchos':
-                entry['platform'] = 'watchos'
+            if idiom == 'watch':
+                roles = {24: ('notificationCenter', '38mm'), 27.5: ('notificationCenter', '42mm'),
+                         40: ('appLauncher', '38mm'), 44: ('appLauncher', '40mm'),
+                         46: ('appLauncher', '41mm'), 50: ('appLauncher', '44mm'),
+                         51: ('appLauncher', '45mm'), 54: ('appLauncher', '49mm'),
+                         86: ('quickLook', '38mm'), 98: ('quickLook', '42mm'),
+                         108: ('quickLook', '44mm'), 117: ('quickLook', '45mm'), 129: ('quickLook', '49mm')}
+                if size == 29:
+                    entry['role'] = 'companionSettings'
+                else:
+                    entry['role'], entry['subtype'] = roles[size]
             entries.append(entry)
         (icons / 'Contents.json').write_text(json.dumps({'info': info, 'images': entries}, indent=2))
 

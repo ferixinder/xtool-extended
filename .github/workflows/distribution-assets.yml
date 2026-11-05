@@ -1,0 +1,27 @@
+name: Distribution fixture assets
+on:
+  push:
+    branches: [codex/milestone2-assets]
+    paths:
+      - .github/workflows/distribution-assets.yml
+      - Examples/DistributionValidation/prepare-assets.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile fixture icons with Apple tools
+        run: |
+          xcodebuild -version
+          python3 Examples/DistributionValidation/prepare-assets.py "$RUNNER_TEMP/store-assets" --compile
+          xcrun --sdk iphoneos assetutil --info "$RUNNER_TEMP/store-assets/iphoneos/Assets.car" >/dev/null
+          xcrun --sdk watchos assetutil --info "$RUNNER_TEMP/store-assets/watchos/Assets.car" >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distribution-fixture-assets
+          path: ${{ runner.temp }}/store-assets
+          retention-days: 3

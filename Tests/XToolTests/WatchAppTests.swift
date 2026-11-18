@@ -37,8 +37,7 @@ import DeveloperAPI
 }
 
 @Test func provisioningIncludesWatchAppsAndTheirExtensions() throws {
-    let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
-        .appendingPathComponent(UUID().uuidString + ".app")
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".app")
     defer { try? FileManager.default.removeItem(at: root) }
     let widget = root.appendingPathComponent("PlugIns/Widget.appex")
     let watch = root.appendingPathComponent("Watch/Counter.app")
@@ -47,7 +46,9 @@ import DeveloperAPI
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
     let apps = try DeveloperServicesAddAppOperation.appBundles(in: root)
-    #expect(Set(apps.map(\.path)) == Set([root, widget, watch, complication].map(\.path)))
+    let paths = Set(apps.map { $0.resolvingSymlinksInPath().path })
+    let expected = Set([root, widget, watch, complication].map { $0.resolvingSymlinksInPath().path })
+    #expect(paths == expected)
 }
 
 @Test func watchBuildSettingsSelectTheWatchPlatform() async throws {

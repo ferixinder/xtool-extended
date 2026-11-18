@@ -120,7 +120,7 @@ enum ArchiveValidation {
             if let frameworks = FileManager.default.enumerator(
                 at: bundle.appendingPathComponent("Frameworks"), includingPropertiesForKeys: nil
             ) {
-                for case let file as URL in frameworks where file.pathExtension == "dylib" {
+                for case let file as URL in frameworks.allObjects where file.pathExtension == "dylib" {
                     try await verifyCMS(ArchiveMachO(contentsOf: file))
                 }
             }

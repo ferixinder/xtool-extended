@@ -180,7 +180,7 @@ struct PackOperation {
         guard let files = FileManager.default.enumerator(at: original, includingPropertiesForKeys: nil) else {
             throw Console.Error("Cannot inspect Watch binaries.")
         }
-        for case let first as URL in files {
+        for case let first as URL in files.allObjects {
             guard !first.dirExists, let data = try? Data(contentsOf: first, options: .mappedIfSafe),
                   data.starts(with: [0xcf, 0xfa, 0xed, 0xfe]) || data.starts(with: [0xce, 0xfa, 0xed, 0xfe]) else { continue }
             let relative = first.path.dropFirst(original.path.count + 1)

@@ -26,6 +26,7 @@ lane :package do
     file.close
     import_certificate(
       certificate_path: file.path,
+      certificate_password: ENV.fetch("IDENTITY_P12_PASSWORD"),
       keychain_name: "xtool.keychain",
       keychain_password: "",
     )

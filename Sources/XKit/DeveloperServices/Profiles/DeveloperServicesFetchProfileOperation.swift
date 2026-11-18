@@ -16,6 +16,7 @@ public struct DeveloperServicesFetchProfileOperation: DeveloperServicesOperation
         case bundleIDNotFound
         case tooManyMatchingBundleIDs
         case invalidProfileData
+        case signingCertificateNotFound
     }
 
     public let context: SigningContext
@@ -25,6 +26,24 @@ public struct DeveloperServicesFetchProfileOperation: DeveloperServicesOperation
         self.context = context
         self.bundleID = bundleID
         self.signingInfo = signingInfo
+    }
+
+    private func existingAppStoreProfile(ids: [String]) async throws -> Mobileprovision? {
+        for id in ids {
+            let existing = try await context.developerAPIClient
+                .profilesGetInstance(path: .init(id: id)).ok.body.json.data
+            guard existing.attributes?.profileType?.value1 == .iosAppStore,
+                  existing.attributes?.profileState?.value1 == .active,
+                  let content = existing.attributes?.profileContent,
+                  let data = Data(base64Encoded: content) else { continue }
+            let candidate = try Mobileprovision(data: data)
+            let digest = try candidate.digest()
+            if digest.expirationDate > Date(),
+               try digest.certificates.contains(where: { try $0.data() == signingInfo.certificate.data() }) {
+                return candidate
+            }
+        }
+        return nil
     }
 
     public func perform() async throws -> Mobileprovision {
@@ -50,12 +69,19 @@ public struct DeveloperServicesFetchProfileOperation: DeveloperServicesOperation
         }
 
         let profiles = bundleID.relationships?.profiles?.data ?? []
-        switch profiles.count {
+        if context.purpose == .appStore, let existing = try await existingAppStoreProfile(ids: profiles.map(\.id)) {
+            return existing
+        }
+        switch context.purpose == .development ? profiles.count : 0 {
         case 0:
             // we're good
             break
         case 1:
-            _ = try await context.developerAPIClient.profilesDeleteInstance(path: .init(id: profiles[0].id)).noContent
+            let existing = try await context.developerAPIClient
+                .profilesGetInstance(path: .init(id: profiles[0].id)).ok.body.json.data
+            if existing.attributes?.profileType?.value1 == .iosAppDevelopment {
+                _ = try await context.developerAPIClient.profilesDeleteInstance(path: .init(id: profiles[0].id)).noContent
+            }
         default:
             // if the user has >1 profile, it's probably okay to add another one (acceptable for non-free accounts?)
             break
@@ -70,11 +96,18 @@ public struct DeveloperServicesFetchProfileOperation: DeveloperServicesOperation
         }
         .map(\.data)
         .reduce(into: [], +=)
-        .filter { $0.attributes?.serialNumber.map(signingInfo.certificate.hasSerialNumber) == true }
+        .filter {
+            context.purpose.acceptsCertificateType($0.attributes?.certificateType?.value1?.rawValue)
+                && $0.attributes?.serialNumber.map(signingInfo.certificate.hasSerialNumber) == true
+        }
+        guard certs.count == 1 else { throw Errors.signingCertificateNotFound }
 
-        let allDevices = try await context.developerAPIClient.devicesGetCollection()
-            .ok.body.json.data
-            .filter { $0.attributes?.deviceClass?.value1?.supportsIOSDevelopmentProfiles == true }
+        var allDevices: [Components.Schemas.Device] = []
+        if context.purpose == .development {
+            allDevices = try await context.developerAPIClient.devicesGetCollection()
+                .ok.body.json.data
+                .filter { $0.attributes?.deviceClass?.value1?.supportsIOSDevelopmentProfiles == true }
+        }
 
         let response = try await context.developerAPIClient.profilesCreateInstance(
             body: .json(
@@ -82,14 +115,16 @@ public struct DeveloperServicesFetchProfileOperation: DeveloperServicesOperation
                     data: .init(
                         _type: .profiles,
                         attributes: .init(
-                            name: "XTL profile \(bundleID.id)",
-                            profileType: .init(.iosAppDevelopment)
+                            name: context.purpose == .appStore
+                                ? "XTL App Store \(bundleID.id) \(UUID().uuidString)"
+                                : "XTL profile \(bundleID.id) \(UUID().uuidString)",
+                            profileType: context.purpose == .appStore ? .init(.iosAppStore) : .init(.iosAppDevelopment)
                         ),
                         relationships: .init(
                             bundleId: .init(
                                 data: .init(_type: .bundleIds, id: bundleID.id)
                             ),
-                            devices: .init(data: allDevices.map {
+                            devices: context.purpose == .appStore ? nil : .init(data: allDevices.map {
                                 .init(_type: .devices, id: $0.id)
                             }),
                             certificates: .init(data: certs.map {

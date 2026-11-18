@@ -54,7 +54,7 @@ public struct DeveloperServicesFetchCertificateOperation: DeveloperServicesOpera
                 _type: .certificates,
                 attributes: .init(
                     csrContent: csr.pemString,
-                    certificateType: .init(.development)
+                    certificateType: context.purpose == .appStore ? .init(.distribution) : .init(.development)
                 )
             )))
         )
@@ -72,7 +72,7 @@ public struct DeveloperServicesFetchCertificateOperation: DeveloperServicesOpera
         _ certificates: [DeveloperServicesCertificate],
         requireConfirmation: Bool
     ) async throws -> SigningInfo {
-        if try await context.auth.team()?.isFree == true {
+        if context.purpose == .development, try await context.auth.team()?.isFree == true {
             if !certificates.isEmpty, requireConfirmation {
                 guard await confirmRevocation(certificates)
                     else { throw CancellationError() }
@@ -89,16 +89,27 @@ public struct DeveloperServicesFetchCertificateOperation: DeveloperServicesOpera
             }
         }
         let signingInfo = try await createCertificate()
-        signingInfoManager[self.context.auth.identityID] = signingInfo
+        try signingInfo.validateKeypair()
+        try signingInfoManager.setInfo(signingInfo, forIdentityID: context.purpose.signingInfoID(for: context.auth.identityID))
         return signingInfo
     }
 
     public func perform() async throws -> SigningInfo {
-        let certificates = try await context.developerAPIClient.certificatesGetCollection().ok.body.json.data
+        let certificates = try await DeveloperAPIPages {
+            try await context.developerAPIClient.certificatesGetCollection().ok.body.json
+        } next: {
+            $0.links.next
+        }
+        .map(\.data)
+        .reduce(into: [], +=)
+        .filter { context.purpose.acceptsCertificateType($0.attributes?.certificateType?.value1?.rawValue) }
 
-        guard let signingInfo = signingInfoManager[self.context.auth.identityID] else {
+        guard let signingInfo = try signingInfoManager.info(
+            forIdentityID: context.purpose.signingInfoID(for: context.auth.identityID)
+        ) else {
             return try await self.replaceCertificates(certificates, requireConfirmation: true)
         }
+        try signingInfo.validateKeypair()
 
         guard let certificate = certificates.first(where: {
             $0.attributes?.serialNumber.map(signingInfo.certificate.hasSerialNumber) == true

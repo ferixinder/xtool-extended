@@ -38,14 +38,18 @@ public struct Packer: Sendable {
             ],
             targets: [
                 \(
-                    plan.allProducts.map {
-                        """
+                    plan.allProducts.map { product in
+                        let settings = product.linkerSettings(
+                            sdkVersion: buildSettings.distributionSDKVersion,
+                            platform: buildSettings.isWatchOS ? "watchos" : "ios"
+                        )
+                        return """
                         .executableTarget(
-                            name: "\($0.targetName)",
+                            name: "\(product.targetName)",
                             dependencies: [
-                                .product(name: "\($0.product)", package: "RootPackage"),
+                                .product(name: "\(product.product)", package: "RootPackage"),
                             ],
-                            linkerSettings: \($0.linkerSettings)
+                            linkerSettings: \(settings)
                         )
                         """
                     }
@@ -246,11 +250,18 @@ public struct Packer: Sendable {
 }
 
 extension Plan.Product {
-    fileprivate var linkerSettings: String {
-        switch self.type {
+    fileprivate func linkerSettings(sdkVersion: String?, platform: String) -> String {
+        let platformFlags = sdkVersion.map { version in
+            """
+            "-Xlinker", "-platform_version", "-Xlinker", "\(platform)",
+            "-Xlinker", "\(deploymentTarget)", "-Xlinker", "\(version)",
+            """
+        } ?? ""
+        return switch self.type {
         case .application: """
         [
             .unsafeFlags([
+                \(platformFlags)
                 "-Xlinker", "-rpath", "-Xlinker", "@executable_path/Frameworks",
             ]),
         ]
@@ -260,6 +271,7 @@ extension Plan.Product {
             // Link to Foundation framework which implements the _NSExtensionMain entrypoint
             .linkedFramework("Foundation"),
             .unsafeFlags([
+                \(platformFlags)
                 // Set the entry point to Foundation`_NSExtensionMain
                 "-Xlinker", "-e", "-Xlinker", "_NSExtensionMain",
                 // Include frameworks that the host app may use

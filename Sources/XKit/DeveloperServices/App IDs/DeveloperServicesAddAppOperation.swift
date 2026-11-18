@@ -16,6 +16,7 @@ public struct DeveloperServicesAddAppOperation: DeveloperServicesOperation {
 
     public enum Error: LocalizedError, CustomStringConvertible {
         case invalidApp(URL)
+        case unregisteredDistributionID(String)
         case tooManyAppGroups(bundleID: String, groups: [DeveloperServicesAppGroup.GroupID])
 
         public var errorDescription: String? {
@@ -26,6 +27,8 @@ public struct DeveloperServicesAddAppOperation: DeveloperServicesOperation {
             switch self {
             case .invalidApp(let url):
                 "Invalid app: \(url.path)"
+            case .unregisteredDistributionID(let identifier):
+                "Register the exact distribution bundle ID '\(identifier)' and its capabilities before signing."
             case .tooManyAppGroups(let bundleID, let groups):
                 """
                 App '\(bundleID)' requests multiple app groups: \(groups.map(\.rawValue).joined(separator: ", ")), \
@@ -54,11 +57,17 @@ public struct DeveloperServicesAddAppOperation: DeveloperServicesOperation {
 
         let existing = try await context.developerAPIClient
             .bundleIdsGetCollection(query: .init(
-                filter_lbrack_identifier_rbrack_: [bundleID]
+                filter_lbrack_identifier_rbrack_: [newBundleID]
             ))
             .ok.body.json.data
             // filter[identifier] is a prefix filter so we need to manually upgrade to equality
             .first(where: { $0.attributes?.identifier == newBundleID })
+
+        // Distribution must not change capabilities or identifiers used by an existing store app.
+        if context.purpose == .appStore {
+            guard let existing else { throw Error.unregisteredDistributionID(newBundleID) }
+            return existing
+        }
 
         let appID: Components.Schemas.BundleId
         if let existing {
@@ -70,11 +79,7 @@ public struct DeveloperServicesAddAppOperation: DeveloperServicesOperation {
                     .init(
                         data: .init(
                             _type: .bundleIds,
-                            attributes: .init(
-                                name: name,
-                                platform: .init(.ios),
-                                identifier: newBundleID
-                            )
+                            attributes: .init(name: name, platform: .init(.ios), identifier: newBundleID)
                         )
                     )
                 )
@@ -185,7 +190,13 @@ public struct DeveloperServicesAddAppOperation: DeveloperServicesOperation {
         var entitlements: Entitlements
         // if the executable doesn't already have entitlements, that's
         // okay. We don't have to throw an error.
-        if let entitlementsData = try? await signer.analyze(executable: executableURL),
+        if context.purpose == .appStore {
+            if let data = try await signer.analyze(executable: executableURL) {
+                entitlements = try PropertyListDecoder().decode(Entitlements.self, from: data)
+            } else {
+                entitlements = try Entitlements(entitlements: [])
+            }
+        } else if let entitlementsData = try? await signer.analyze(executable: executableURL),
             let decodedEntitlements = try? PropertyListDecoder().decode(Entitlements.self, from: entitlementsData) {
             entitlements = decodedEntitlements
 
@@ -205,6 +216,22 @@ public struct DeveloperServicesAddAppOperation: DeveloperServicesOperation {
 
         let appID = try await upsertApp(bundleID: bundleID, entitlements: entitlements, isFreeTeam: isFreeTeam)
         let newBundleID = appID.attributes!.identifier!
+
+        if context.purpose == .appStore {
+            let profile = try await DeveloperServicesFetchProfileOperation(
+                context: context, bundleID: newBundleID, signingInfo: signingInfo
+            ).perform()
+            let digest = try profile.digest()
+            guard digest.expirationDate > Date(),
+                  digest.devices.isEmpty, digest.provisionsAllDevices != true,
+                  try digest.certificates.contains(where: { try $0.data() == signingInfo.certificate.data() }) else {
+                throw DeveloperServicesFetchProfileOperation.Errors.invalidProfileData
+            }
+            entitlements = try entitlements.forAppStore(
+                profile: digest.entitlements, bundleID: newBundleID, teamID: signingInfo.certificate.teamID()
+            )
+            return ProvisioningInfo(newBundleID: newBundleID, entitlements: entitlements, mobileprovision: profile)
+        }
 
         let teamID = try signingInfo.certificate.teamID()
         try entitlements.update(
@@ -269,7 +296,7 @@ public struct DeveloperServicesAddAppOperation: DeveloperServicesOperation {
         }
     }
 
-    static func appBundles(in root: URL) throws -> [URL] {
+    package static func appBundles(in root: URL) throws -> [URL] {
         var apps: [URL] = [root]
 
         for pluginsDir in ["PlugIns", "Extensions"] {

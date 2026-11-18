@@ -39,7 +39,9 @@ public struct DeveloperServicesProvisioningOperation: DeveloperServicesOperation
 
     public func perform() async throws -> Response {
         progress(0/3)
-        try await DeveloperServicesAddDeviceOperation(context: context).perform()
+        if context.purpose == .development {
+            try await DeveloperServicesAddDeviceOperation(context: context).perform()
+        }
 
         progress(1/3)
         let signingInfo = try await DeveloperServicesFetchCertificateOperation(

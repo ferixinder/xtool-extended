@@ -29,6 +29,8 @@ struct DSCommand: AsyncParsableCommand {
             DSIdentifiersCommand.self,
             DSDevicesCommand.self,
             DSProfilesCommand.self,
+            DSUploadBuildCommand.self,
+            DSBuildUploadStatusCommand.self,
             DSAnisetteCommand.self,
         ]
     )

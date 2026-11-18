@@ -21,7 +21,9 @@ public final class Mobileprovision: @unchecked Sendable {
         public let teamIdentifiers: [DeveloperServicesTeam.ID]
         public let creationDate: Date
         public let expirationDate: Date
-        public let devices: [String]
+        private let provisionedDevices: [String]?
+        public var devices: [String] { provisionedDevices ?? [] }
+        public let provisionsAllDevices: Bool?
         public let certificates: [Certificate]
         public let entitlements: Entitlements
 
@@ -31,7 +33,8 @@ public final class Mobileprovision: @unchecked Sendable {
             case teamIdentifiers = "TeamIdentifier"
             case creationDate = "CreationDate"
             case expirationDate = "ExpirationDate"
-            case devices = "ProvisionedDevices"
+            case provisionedDevices = "ProvisionedDevices"
+            case provisionsAllDevices = "ProvisionsAllDevices"
             case certificates = "DeveloperCertificates"
             case entitlements = "Entitlements"
         }

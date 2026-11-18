@@ -12,6 +12,8 @@ Watch support is experimental. Building a Watch target and installing its contai
 - Companion device builds using `arm64` for minimum watchOS 26 or later, or `arm64_32` for earlier targets.
 - Provisioning of embedded Watch apps, inclusion of registered Apple Watches in development profiles, and companion bundle ID updates during signing.
 - Idempotent capability deletion: an already absent capability does not stop provisioning; authentication and permission failures still do.
+- `xtool dev archive` builds a release IPA with separate App Store signing, consistent versions and local package checks. It does not upload to TestFlight. Distribution icons currently require catalogs compiled on macOS; see the [distribution guide](Documentation/xtool.docc/Distribution.md).
+- `xtool ds upload-build` uploads a prepared distribution IPA, and `xtool ds build-upload-status` checks Apple's processing result. These commands do not distribute to testers or publish an app; see the [build upload guide](Documentation/xtool.docc/BuildUploads.md).
 
 ## Build this fork
 
@@ -85,7 +87,7 @@ xtool/MyApp.app/
 
 - Register the paired Apple Watch's UDID in the same Apple Developer team before provisioning. The install flow currently registers the target iPhone automatically, but does not register its paired Watch.
 - iPhone installation success is separate from Watch installation. Check the iPhone's Watch app for the companion app and verify installation on the physical watch.
-- Device builds contain one selected architecture, not a universal binary. A watchOS 26+ minimum selects `arm64` and excludes older watchOS versions.
+- Development device builds contain one selected architecture. Distribution archives targeting watchOS below 27 include both `arm64` and `arm64_32`; watchOS 27+ archives use `arm64`. Apple requires both slices for watchOS 26 distribution even though an `arm64` development build can work on the selected watch.
 - Companion Watch apps are not supported by `generate-xcode-project` yet.
 - This fork packages single-target Watch apps; it does not generate a Watch UI, implement phone/watch data sync, or add complications to your application.
 

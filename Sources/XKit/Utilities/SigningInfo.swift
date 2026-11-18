@@ -9,10 +9,19 @@
 import Foundation
 import ConcurrencyExtras
 import Dependencies
+import CryptoExtras
+import X509
 
 public struct SigningInfo: Codable, Sendable {
     public let privateKey: PrivateKey
     public let certificate: Certificate
+
+    func validateKeypair() throws {
+        let key = try _RSA.Signing.PrivateKey(pemRepresentation: String(decoding: privateKey.data, as: UTF8.self))
+        guard certificate.raw.publicKey == X509.Certificate.PublicKey(key.publicKey) else {
+            throw Keypair.Error.invalidKeypair
+        }
+    }
 }
 
 public protocol SigningInfoManager: Sendable {

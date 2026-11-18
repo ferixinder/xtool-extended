@@ -11,6 +11,7 @@ public struct BuildSettings: Sendable {
     public var packagePath: String
     public let configuration: BuildConfiguration
     public let triple: String
+    public var distributionSDKVersion: String?
 
     public var isWatchOS: Bool { triple.split(separator: "-").dropFirst(2).first?.hasPrefix("watchos") == true }
     public var platformName: String {

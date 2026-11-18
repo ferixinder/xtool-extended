@@ -1,0 +1,12 @@
+version: 1
+bundleID: sh.xtool.validation
+product: DistributionValidation
+infoPath: Support/App-Info.plist
+watchApp:
+  product: DistributionValidationWatch
+  bundleID: sh.xtool.validation.watchkitapp
+  infoPath: Support/Watch-Info.plist
+extensions:
+  - product: DistributionValidationWidget
+    bundleID: sh.xtool.validation.widget
+    infoPath: Support/Widget-Info.plist

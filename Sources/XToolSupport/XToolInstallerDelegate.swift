@@ -12,6 +12,13 @@ final class XToolAuthDelegate: TwoFactorAuthDelegate {
 }
 
 actor XToolInstallerDelegate: IntegratedInstallerDelegate {
+    private let allowsRevocation: Bool
+    private(set) var refusedRevocation = false
+
+    init(allowsRevocation: Bool = true) {
+        self.allowsRevocation = allowsRevocation
+    }
+
     private nonisolated let _output = Dependency(\.out)
     private nonisolated var output: CommandOutput { _output.wrappedValue }
 
@@ -78,6 +85,10 @@ actor XToolInstallerDelegate: IntegratedInstallerDelegate {
     }
 
     func confirmRevocation(of certificates: [DeveloperServicesCertificate]) async -> Bool {
+        guard allowsRevocation else {
+            refusedRevocation = true
+            return false
+        }
         output.print("\nThe following certificates must be revoked:")
         output.print(
             certificates.map {

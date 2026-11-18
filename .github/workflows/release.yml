@@ -57,6 +57,12 @@ jobs:
           DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
           XTOOL_VERSION: ${{ github.ref_name }}
         run: |
+          for name in APP_STORE_CONNECT_API_KEY_KEY_ID APP_STORE_CONNECT_API_KEY_ISSUER_ID APP_STORE_CONNECT_API_KEY_KEY IDENTITY_P12 DEVELOPMENT_TEAM; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing signing secret: $name. See macOS/README.md."
+              exit 1
+            fi
+          done
           brew install -y xcodegen
           cd macOS
           bundle exec fastlane package
@@ -99,7 +105,7 @@ jobs:
       push: true
       platforms: linux/amd64,linux/arm64
       meta-images: |
-        ghcr.io/xtool-org/xtool
+        ghcr.io/${{ github.repository }}
       meta-tags: |
         type=semver,pattern={{version}}
     secrets:

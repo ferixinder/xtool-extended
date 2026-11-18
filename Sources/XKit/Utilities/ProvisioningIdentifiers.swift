@@ -22,8 +22,9 @@ extension ProvisioningIdentifiers {
     }
 
     static func identifier(fromSanitized sanitized: String, context: SigningContext) -> String {
+        if context.purpose == .appStore { return sanitized }
         let uuid = context.auth.identityID.split(separator: "-")[0].uppercased()
-        return "\(Self.idPrefix)\(uuid).\(sanitized)"
+        return "\(Self.idPrefix)\(uuid).\(Self.sanitize(identifier: sanitized))"
     }
 
     static func safeify(identifier: String) -> String {

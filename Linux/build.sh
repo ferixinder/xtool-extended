@@ -13,7 +13,8 @@ fi
 rm -rf staging/tmp
 mkdir -p staging/tmp staging/linuxdeploy
 
-swift build --package-path .. -c release --product xtool
+# shortcut: Swift 6.4.x crashes in LLVM optimization; re-enable it after a toolchain fix.
+swift build --package-path .. -c release --product xtool -Xswiftc -Xfrontend -Xswiftc -disable-llvm-optzns
 bin="$(swift build --package-path .. -c release --show-bin-path)"
 strip "${bin}/xtool"
 

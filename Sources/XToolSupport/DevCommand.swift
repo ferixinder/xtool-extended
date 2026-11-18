@@ -27,6 +27,7 @@ struct PackOperation {
     var xcode = false
     var schemaOverride: PackSchema?
     var selectWatchArchitecture = false
+    var distribution = false
 
     @discardableResult
     func run() async throws -> URL {
@@ -59,23 +60,18 @@ struct PackOperation {
 
         await LSPConfig.tryEnsure(using: schema)
 
-        var buildSettings = try await BuildSettings(
+        let planningSettings = try await BuildSettings(
             configuration: buildOptions.configuration,
             triple: triple ?? Self.defaultTriple,
             options: []
         )
 
         let planner = Planner(
-            buildSettings: buildSettings,
+            buildSettings: planningSettings,
             schema: schema
         )
         let plan = try await planner.createPlan()
-        if selectWatchArchitecture {
-            buildSettings = try await BuildSettings(
-                configuration: buildOptions.configuration,
-                triple: BuildSettings.watchDeviceTriple(minimumVersion: plan.app.deploymentTarget)
-            )
-        }
+        let buildSettings = try await resolvedBuildSettings(planningSettings, for: plan)
 
         if xcode {
             guard schema.watchApp == nil else {
@@ -131,6 +127,21 @@ struct PackOperation {
         return bundle
     }
 
+    private func resolvedBuildSettings(_ initial: BuildSettings, for plan: Plan) async throws -> BuildSettings {
+        var settings = initial
+        if selectWatchArchitecture {
+            settings = try await BuildSettings(
+                configuration: buildOptions.configuration,
+                triple: distribution ? "arm64-apple-watchos"
+                    : BuildSettings.watchDeviceTriple(minimumVersion: plan.app.deploymentTarget)
+            )
+        }
+        if distribution {
+            settings.distributionSDKVersion = try await ArchiveMetadata.load(platform: settings.platformName).sdkVersion
+        }
+        return settings
+    }
+
     private func embedWatchApp(
         _ watch: PackSchema.Extension, in bundle: URL, hostBundleID: String, buildSettings: BuildSettings
     ) async throws {
@@ -143,16 +154,45 @@ struct PackOperation {
         }
         let watchBundle = try await PackOperation(
             triple: watchTriple, buildOptions: buildOptions, schemaOverride: watchSchema,
-            selectWatchArchitecture: !buildSettings.triple.contains("simulator")
+            selectWatchArchitecture: !buildSettings.triple.contains("simulator"), distribution: distribution
         ).run()
         let plist = try Data(contentsOf: watchBundle.appendingPathComponent("Info.plist"))
         let info = try PropertyListSerialization.propertyList(from: plist, format: nil) as? [String: Any]
         guard info?["WKCompanionAppBundleIdentifier"] as? String == hostBundleID else {
             throw Console.Error("watchApp Info.plist must set WKCompanionAppBundleIdentifier to '\(hostBundleID)'.")
         }
+        if distribution, let minimum = info?["MinimumOSVersion"] as? String,
+           try ArchiveMachO.version(minimum) < 27 << 16 {
+            try await addCompatibilityWatchSlice(schema: watchSchema, to: watchBundle)
+        }
         let watchDirectory = bundle.appendingPathComponent("Watch", isDirectory: true)
         try FileManager.default.createDirectory(at: watchDirectory, withIntermediateDirectories: true)
         try FileManager.default.moveItem(at: watchBundle, to: watchDirectory.appendingPathComponent(watchBundle.lastPathComponent))
+    }
+
+    private func addCompatibilityWatchSlice(schema: PackSchema, to watch: URL) async throws {
+        let preserved = try TemporaryDirectory(name: "watch-arm64")
+        let original = preserved.url.appendingPathComponent(watch.lastPathComponent)
+        try FileManager.default.copyItem(at: watch, to: original)
+        let compatibility = try await PackOperation(
+            triple: "arm64_32-apple-watchos", buildOptions: buildOptions, schemaOverride: schema, distribution: true
+        ).run()
+        guard let files = FileManager.default.enumerator(at: original, includingPropertiesForKeys: nil) else {
+            throw Console.Error("Cannot inspect Watch binaries.")
+        }
+        for case let first as URL in files {
+            guard !first.dirExists, let data = try? Data(contentsOf: first, options: .mappedIfSafe),
+                  data.starts(with: [0xcf, 0xfa, 0xed, 0xfe]) || data.starts(with: [0xce, 0xfa, 0xed, 0xfe]) else { continue }
+            let relative = first.path.dropFirst(original.path.count + 1)
+            let second = compatibility.appendingPathComponent(String(relative))
+            let merged = second.deletingLastPathComponent().appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: merged) }
+            try UniversalWatchBinary.merge(first, second, into: merged)
+            let permissions = try FileManager.default.attributesOfItem(atPath: second.path)[.posixPermissions]
+            try FileManager.default.removeItem(at: second)
+            try FileManager.default.moveItem(at: merged, to: second)
+            if let permissions { try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: second.path) }
+        }
     }
 
 }
@@ -337,6 +377,8 @@ struct DevCommand: AsyncParsableCommand {
         subcommands: [
             DevXcodeCommand.self,
             DevBuildCommand.self,
+            DevWatchSignCommand.self,
+            DevArchiveCommand.self,
             DevRunCommand.self,
             DevBSPCommand.self,
         ],

@@ -21,3 +21,5 @@ The release workflow builds a signed, notarized app. Configure these GitHub Acti
 - `DEVELOPMENT_TEAM`: Apple Developer team ID.
 
 These credentials must belong to your Apple Developer team; upstream repository secrets are not copied to forks.
+
+Register the explicit App ID `io.github.ferixinder.XToolMac` in your team's Apple Developer account under Certificates, Identifiers & Profiles → Identifiers before running the release. This ID must match both `project.yml` and `fastlane/Appfile`; an App Store Connect app listing is not required for Developer ID distribution.

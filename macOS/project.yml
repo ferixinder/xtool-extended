@@ -1,6 +1,6 @@
 name: XToolMac
 options:
-  bundleIdPrefix: sh.xtool
+  bundleIdPrefix: io.github.ferixinder
 packages:
   xtool:
     path: ..

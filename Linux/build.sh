@@ -18,7 +18,7 @@ swift build --package-path .. -c release --product xtool -Xswiftc -Xfrontend -Xs
 bin="$(swift build --package-path .. -c release --show-bin-path)"
 strip "${bin}/xtool"
 
-curr_git_info="$(curl -fsSL https://api.github.com/repos/linuxdeploy/linuxdeploy/git/refs/tags/continuous)"
+curr_git_info="$(git ls-remote --exit-code https://github.com/linuxdeploy/linuxdeploy.git refs/tags/continuous)"
 curr_arch="$(uname -m)"
 
 if [[ -f staging/linuxdeploy/git.json ]]; then

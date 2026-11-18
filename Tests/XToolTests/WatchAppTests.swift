@@ -37,7 +37,8 @@ import DeveloperAPI
 }
 
 @Test func provisioningIncludesWatchAppsAndTheirExtensions() throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".app")
+    let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+        .appendingPathComponent(UUID().uuidString + ".app")
     defer { try? FileManager.default.removeItem(at: root) }
     let widget = root.appendingPathComponent("PlugIns/Widget.appex")
     let watch = root.appendingPathComponent("Watch/Counter.app")

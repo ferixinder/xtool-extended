@@ -49,6 +49,8 @@ lane :package do
   gym(
     export_method: "developer-id",
     output_directory: "./Build/Output",
+    # shortcut: Swift 6.4.x crashes in LLVM optimization; re-enable it after a toolchain fix.
+    xcargs: "OTHER_SWIFT_FLAGS='$(inherited) -Xfrontend -disable-llvm-optzns'",
   )
 
   notarize(

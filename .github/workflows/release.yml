@@ -67,6 +67,12 @@ jobs:
           brew install -y xcodegen
           cd macOS
           bundle exec fastlane package
+      - name: Upload macOS build logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xtool-mac-build-logs
+          path: ~/Library/Logs/gym/*.log
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
